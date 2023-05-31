@@ -5,9 +5,10 @@ import matplotlib.pyplot as plt
 from statistics import mean
 from scipy.stats import sem
 
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, Normalizer
 from sklearn.metrics import *
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.utils import shuffle
 
 from sklearn.svm import LinearSVC
 from sklearn.neighbors import KNeighborsClassifier
@@ -17,56 +18,75 @@ from sklearn.tree import DecisionTreeClassifier
 
 scaler = StandardScaler()
 
-# Dictionary of selectable models.
+# Dictionary of selectable models where each model has a selection of tunable parameters.
 models = {
-    "linear": LinearSVC(),
-    "kneighbours": KNeighborsClassifier(),
-    "svclinear":  SVC(kernel='linear'),
-    "svcpoly": SVC(kernel='poly'),
-    "svcrbf": SVC(kernel='rbf'),
-    "svcsigmoid": SVC(kernel='sigmoid'),
-    "bagging":  BaggingClassifier(),
-    "decisiontree": DecisionTreeClassifier(), 
-    "forest": RandomForestClassifier(),
-    "eforest": ExtraTreesClassifier()
+    "linear": [ LinearSVC(), { 'loss': ['hinge', 'squared_hinge'],
+                               'C': [0.1, 1, 10] }],
+
+    "kneighbours": [KNeighborsClassifier(), { 'n_neighbors': [3, 5, 7],
+                                              'weights': ['uniform', 'distance'],
+                                              'metric': ['minkowski', 'euclidean', 'manhattan'] }],
+
+    "svc": [SVC(), { 'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+                     'C': [0.1, 1, 10],
+                     'gamma': ['scale', 'auto'] }],
+
+    "bagging": [BaggingClassifier(), { 'bootstrap': [True, False],
+                                       'bootstrap_features': [True, False],    
+                                       'n_estimators': [5, 10, 15],
+                                    'max_samples' : [0.6, 0.8, 1.0] }],
+
+    "decisiontree": [DecisionTreeClassifier(), { 'criterion': ['entropy', 'gini'],
+                                                 'max_depth': [None, 5, 10],
+                                                 'min_samples_split': [2, 5, 10],
+                                                 'min_samples_leaf': [1, 2, 4] }],
+
+    "forest": [RandomForestClassifier(), { 'n_estimators': [100, 200, 500],
+                                           'max_depth': [None, 5, 10],
+                                           'min_samples_split': [2, 5, 10],
+                                           'min_samples_leaf': [1, 2, 4] }],
+
+    "eforest": [ExtraTreesClassifier(), { 'n_estimators': [100, 200, 500],
+                                          'max_depth': [None, 5, 10],
+                                          'min_samples_split': [2, 5, 10],
+                                          'min_samples_leaf': [1, 2, 4] }]
 }
 
 def experiment(training_data):
+    """
+    Trains each available model on a training dataset and compares their accuracies on a plotted graph.
+    """
+
     model_names = []
-    training_accuracy_means = []
-    training_accuracy_errors = []
-    validation_accuracy_means = []
-    validation_accuracy_errors = []
+    trained_accuracies = []
+    untrained_accuracies = []
 
-    for name, model in models.items():
-        training_accuracies = []
-        validation_accuracies = []
+    for [model, parameter_grid] in models.values():
 
-        for i in range(0, 10):
-            (trained_accuracy, untrained_accuracy) = train(model, training_data)
-            training_accuracies.append(trained_accuracy)
-            validation_accuracies.append(untrained_accuracy)
+        # Train and tune the model against the training dataset.
+        (trained_accuracy, untrained_accuracy) = train(model, parameter_grid, training_data)
 
-        model_names.append(name)
-        training_accuracy_means.append(mean(training_accuracies))
-        training_accuracy_errors.append(sem(training_accuracies))
-        validation_accuracy_means.append(mean(validation_accuracies))
-        validation_accuracy_errors.append(sem(validation_accuracies))
+        model_names.append(model.__class__.__name__)
+        trained_accuracies.append(trained_accuracy)
+        untrained_accuracies.append(untrained_accuracy)
 
-    plt.errorbar(model_names, training_accuracy_means, training_accuracy_errors, fmt='o', color='black', label='Training Accuracy')
-    plt.errorbar(model_names, validation_accuracy_means, validation_accuracy_errors, fmt='s', color='black', label='Validation Accuracy')
+
+    plt.plot(model_names, trained_accuracies, marker='o', color='black', label="Accuracy on Training Data")
+    plt.plot(model_names, untrained_accuracies, marker='s', color='black', label="Accuracy on Validation Data")
 
     plt.xlabel('Model Type')
     plt.ylabel('Accuracy')
     plt.legend()
     plt.show()
 
-def train(model, training_data):
+def train(model, parameter_grid, training_data):
     """
     1. Reads in a labelled dataset. \n 
     2. Trains the models with that  dataset. \n
     3. Measure and return the accuracy of the model against that dataset.
     """
+
+    print("Seperating/processing the dataset...")
 
     # Seperate the input 'features' from the expect output labels.
     X = training_data.iloc[:, :-1].values
@@ -74,20 +94,30 @@ def train(model, training_data):
 
     # Normalise and transform data.
     X = scaler.fit_transform(X)
+    X, y = shuffle(X, y, random_state=42)
 
-    # Seperate the training data into 2 parts.
-    X_1, X_2, y_1, y_2 = train_test_split(X, y, train_size=0.9)
+    print("Model selected: ", model.__class__.__name__)
 
-    # Use the first part of the training data to train the model.
-    model.fit(X_1, y_1)
+    print("Tunning and training the model...")
 
-    # Use the first part of the training data to validate the accuracy of the model on data it HAS seen.
-    y_predicted = model.predict(X_1)
-    trained_accuracy = accuracy_score(y_1, y_predicted)
+    # Tune, train and compare model with varying parameters.
+    grid_search = GridSearchCV(model, parameter_grid, n_jobs=-1, verbose=3, scoring='accuracy')
+    grid_search.fit(X, y)
 
-    # Use the second part of the training data to validate the accuracy of the model on data it HASN'T seen.
-    y_predicted = model.predict(X_2)
-    untrained_accuracy = accuracy_score(y_2, y_predicted)
+    # Print the best parameters and best score
+    print("Best Parameters:", grid_search.best_params_)
+    print("Best Score:", grid_search.best_score_)
+
+    # Get the best trained model with the best parameters.
+    model = grid_search.best_estimator_
+
+    # print("Calulating accuracy...")
+
+    # # # Use the first part of the training data to validate the accuracy of the model on data it HAS seen.
+    # trained_accuracy = model.score(X_1, y_1)
+
+    # # # Use the second part of the training data to validate the accuracy of the model on data it HASN'T seen.
+    # untrained_accuracy = model.score(X_2, y_2)
 
     return (trained_accuracy, untrained_accuracy)
 
@@ -124,10 +154,14 @@ def main():
         testing_data = pd.read_csv(sys.argv[4], header=None)
 
         # Instantiate model.
-        model = models[sys.argv[2]]
+        model = models[sys.argv[2]][0]
+        parameter_grid = models[sys.argv[2]][1]
 
-        # Train model with training data.
-        train(model, training_data)
+        # Train model with training data and calculate the model accuracy.
+        training_accuracy, validation_accuracy = train(model, parameter_grid, training_data)
+
+        print("Training Accuracy: ", training_accuracy)
+        print("Validation Accuracy: ", validation_accuracy)
 
         # Test model with validating data.
         test(model, testing_data)
