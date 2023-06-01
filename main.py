@@ -7,8 +7,9 @@ from scipy.stats import sem
 
 from sklearn.preprocessing import StandardScaler, Normalizer
 from sklearn.metrics import *
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import GridSearchCV
 from sklearn.utils import shuffle
+from sklearn.pipeline import Pipeline
 
 from sklearn.svm import LinearSVC
 from sklearn.neighbors import KNeighborsClassifier
@@ -16,70 +17,60 @@ from sklearn.svm import SVC
 from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, ExtraTreesClassifier
 from sklearn.tree import DecisionTreeClassifier
 
-scaler = StandardScaler()
+pipe = Pipeline(steps=[
+    ("scalar", StandardScaler()),
+    ("classifier", LinearSVC())
+])
 
-# Dictionary of selectable models where each model has a selection of tunable parameters.
-models = {
-    "linear": [ LinearSVC(), { 'loss': ['hinge', 'squared_hinge'],
-                               'C': [0.1, 1, 10] }],
+parameter_grid = [
+    {
+        "classifier": [LinearSVC()],
+        "classifier__loss": ['hinge', 'squared_hinge'],
+        "classifier__C": [0.1, 1, 10]
+    },
+    {
+        "classifier": [KNeighborsClassifier()],
+        "classifier__n_neighbors": [3, 5, 7],
+        "classifier__weights": ['uniform', 'distance'],
+        "classifier__metric": ['minkowski', 'euclidean', 'manhattan']
+    },
+    {
+        "classifier": [SVC()],
+        "classifier__kernel": ['linear', 'poly', 'rbf', 'sigmoid'],
+        "classifier__C": [0.1, 1, 10],
+        "classifier__gamma": ['scale', 'auto']
+    },
+    {
+        "classifier": [BaggingClassifier()],
+        "classifier__bootstrap": [True, False],
+        "classifier__bootstrap_features": [True, False],    
+        "classifier__n_estimators": [5, 10, 15],
+        "classifier__max_samples" : [0.6, 0.8, 1.0]
+    },
+    {
+        "classifier": [DecisionTreeClassifier()],
+        "classifier__criterion": ['entropy', 'gini'],
+        "classifier__max_depth": [None, 5, 10],
+        "classifier__min_samples_split": [2, 5, 10],
+        "classifier__min_samples_leaf": [1, 2, 4]
+    },
+    {
+        "classifier": [RandomForestClassifier()],
+        "classifier__n_estimators": [100, 200, 500],
+        "classifier__max_depth": [None, 5, 10],
+        "classifier__min_samples_split": [2, 5, 10],
+        "classifier__min_samples_leaf": [1, 2, 4]
+    },
+    {
+        "classifier": [ExtraTreesClassifier()],
+        "classifier__n_estimators": [100, 200, 500],
+        "classifier__max_depth": [None, 5, 10],
+        "classifier__min_samples_split": [2, 5, 10],
+        "classifier__min_samples_leaf": [1, 2, 4]
+    }
+]
 
-    "kneighbours": [KNeighborsClassifier(), { 'n_neighbors': [3, 5, 7],
-                                              'weights': ['uniform', 'distance'],
-                                              'metric': ['minkowski', 'euclidean', 'manhattan'] }],
-
-    "svc": [SVC(), { 'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
-                     'C': [0.1, 1, 10],
-                     'gamma': ['scale', 'auto'] }],
-
-    "bagging": [BaggingClassifier(), { 'bootstrap': [True, False],
-                                       'bootstrap_features': [True, False],    
-                                       'n_estimators': [5, 10, 15],
-                                    'max_samples' : [0.6, 0.8, 1.0] }],
-
-    "decisiontree": [DecisionTreeClassifier(), { 'criterion': ['entropy', 'gini'],
-                                                 'max_depth': [None, 5, 10],
-                                                 'min_samples_split': [2, 5, 10],
-                                                 'min_samples_leaf': [1, 2, 4] }],
-
-    "forest": [RandomForestClassifier(), { 'n_estimators': [100, 200, 500],
-                                           'max_depth': [None, 5, 10],
-                                           'min_samples_split': [2, 5, 10],
-                                           'min_samples_leaf': [1, 2, 4] }],
-
-    "eforest": [ExtraTreesClassifier(), { 'n_estimators': [100, 200, 500],
-                                          'max_depth': [None, 5, 10],
-                                          'min_samples_split': [2, 5, 10],
-                                          'min_samples_leaf': [1, 2, 4] }]
-}
-
-def experiment(training_data):
-    """
-    Trains each available model on a training dataset and compares their accuracies on a plotted graph.
-    """
-
-    model_names = []
-    trained_accuracies = []
-    untrained_accuracies = []
-
-    for [model, parameter_grid] in models.values():
-
-        # Train and tune the model against the training dataset.
-        (trained_accuracy, untrained_accuracy) = train(model, parameter_grid, training_data)
-
-        model_names.append(model.__class__.__name__)
-        trained_accuracies.append(trained_accuracy)
-        untrained_accuracies.append(untrained_accuracy)
-
-
-    plt.plot(model_names, trained_accuracies, marker='o', color='black', label="Accuracy on Training Data")
-    plt.plot(model_names, untrained_accuracies, marker='s', color='black', label="Accuracy on Validation Data")
-
-    plt.xlabel('Model Type')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.show()
-
-def train(model, parameter_grid, training_data):
+def train(training_data):
     """
     1. Reads in a labelled dataset. \n 
     2. Trains the models with that  dataset. \n
@@ -88,20 +79,17 @@ def train(model, parameter_grid, training_data):
 
     print("Seperating/processing the dataset...")
 
+    # Shuffle the dataset to prevent bias in the training.
+    training_data = shuffle(training_data, random_state=42)
+
     # Seperate the input 'features' from the expect output labels.
     X = training_data.iloc[:, :-1].values
     y = training_data.iloc[:, -1].values
 
-    # Normalise and transform data.
-    X = scaler.fit_transform(X)
-    X, y = shuffle(X, y, random_state=42)
+    print("Tunning, training and comparing models...")
 
-    print("Model selected: ", model.__class__.__name__)
-
-    print("Tunning and training the model...")
-
-    # Tune, train and compare model with varying parameters.
-    grid_search = GridSearchCV(model, parameter_grid, n_jobs=-1, verbose=3, scoring='accuracy')
+    # Tune, train and compare models with varying parameters.
+    grid_search = GridSearchCV(pipe, parameter_grid, n_jobs=-1, verbose=3, scoring='accuracy')
     grid_search.fit(X, y)
 
     # Print the best parameters and best score
@@ -109,17 +97,7 @@ def train(model, parameter_grid, training_data):
     print("Best Score:", grid_search.best_score_)
 
     # Get the best trained model with the best parameters.
-    model = grid_search.best_estimator_
-
-    # print("Calulating accuracy...")
-
-    # # # Use the first part of the training data to validate the accuracy of the model on data it HAS seen.
-    # trained_accuracy = model.score(X_1, y_1)
-
-    # # # Use the second part of the training data to validate the accuracy of the model on data it HASN'T seen.
-    # untrained_accuracy = model.score(X_2, y_2)
-
-    return (trained_accuracy, untrained_accuracy)
+    return grid_search.best_estimator_
 
 def test(model, testing_data):
     """
@@ -131,9 +109,6 @@ def test(model, testing_data):
     # Get the feature values.
     X = testing_data.values
 
-    # Normalise and transform the data.
-    X = scaler.fit_transform(X)
-
     # Predict the labels using the model.
     y = model.predict(X)
 
@@ -143,41 +118,20 @@ def test(model, testing_data):
     return testing_data
 
 def main():
-    mode = int(sys.argv[1])
 
-    if (mode == 1):
+    # Read the training dataset from the training data file.
+    training_data = pd.read_csv(sys.argv[1], header=None)
 
-        # Read the dataset from the training data file.
-        training_data = pd.read_csv(sys.argv[3], header=None)
+    # Read the testing dataset from the testing data file.
+    testing_data = pd.read_csv(sys.argv[2], header=None)
 
-        # Read the dataset from the testing data file.
-        testing_data = pd.read_csv(sys.argv[4], header=None)
+    # Get a model that is optimised against the training dataset.
+    model = train(training_data)
 
-        # Instantiate model.
-        model = models[sys.argv[2]][0]
-        parameter_grid = models[sys.argv[2]][1]
+    # Predict and append labels for the testing dataset.
+    test(model, testing_data)
 
-        # Train model with training data and calculate the model accuracy.
-        training_accuracy, validation_accuracy = train(model, parameter_grid, training_data)
-
-        print("Training Accuracy: ", training_accuracy)
-        print("Validation Accuracy: ", validation_accuracy)
-
-        # Test model with validating data.
-        test(model, testing_data)
-
-        # Write the dataset with the predicted labels to the results data file.
-        testing_data.to_csv(sys.argv[5], header=False, index=False)
-
-    elif (mode == 2):
-
-        # Read the dataset from the training data file.
-        training_data = pd.read_csv(sys.argv[2], header=None)
-
-        # Compare accuracy of different models on training dataset and plot results.
-        experiment(training_data)
-
-    else:
-        print("ERROR: Mode doesn't exist!")
+    # Write the dataset with the predicted labels to the results data file.
+    testing_data.to_csv(sys.argv[3], header=False, index=False)
 
 main()
