@@ -19,9 +19,10 @@ from sklearn.tree import DecisionTreeClassifier
 
 pipe = Pipeline(steps=[
     ("scalar", StandardScaler()),
-    ("classifier", LinearSVC())
+    ("classifier", ExtraTreesClassifier())
 ])
 
+# Used by the grid search algorithm to loop through combinations of different models and parameter values.
 parameter_grid = [
     {
         "classifier": [LinearSVC()],
@@ -92,11 +93,11 @@ def train(training_data):
     grid_search = GridSearchCV(pipe, parameter_grid, n_jobs=-1, verbose=3, scoring='accuracy')
     grid_search.fit(X, y)
 
-    # Print the best parameters and best score
+    # Print the optimal parameters and best score for the best model.
     print("Best Parameters:", grid_search.best_params_)
     print("Best Score:", grid_search.best_score_)
 
-    # Get the best trained model with the best parameters.
+    # Return the best trained model.
     return grid_search.best_estimator_
 
 def test(model, testing_data):
