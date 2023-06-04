@@ -12,6 +12,7 @@ from sklearn.svm import SVC
 from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, ExtraTreesClassifier
 from sklearn.tree import DecisionTreeClassifier
 
+# Perform data preprocessing before executing classifer model.
 pipe = Pipeline(steps=[
     ("scalar", StandardScaler()),
     ("classifier", ExtraTreesClassifier())
